@@ -1,0 +1,262 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 13f48a12870b441d9e6b07b92911762c
+      name: Templates/LibreHardwareMonitor
+  templates:
+    - uuid: 87a2d8295f344a7ba48e6775d0b493c1
+      template: 'Libre Hardware Monitor Windows Desktop'
+      name: 'Libre Hardware Monitor Windows Desktop'
+      groups:
+        - name: Templates/LibreHardwareMonitor
+      items:
+        - uuid: d928f24b324c443e879e781745423871
+          name: 'LHM: Get data'
+          type: HTTP_AGENT
+          key: lhm.get_data
+          delay: 30s
+          history: '0'
+          value_type: TEXT
+          trends: '0'
+          url: 'http://{HOST.CONN}:8085/data.json'
+          tags:
+            - tag: component
+              value: raw
+      discovery_rules:
+        - uuid: 5c9182374d83492798c1f23908472312
+          name: 'LHM: Sensors Discovery'
+          type: DEPENDENT
+          key: lhm.sensors.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#SENSOR_TYPE}'
+                value: ^(Temperature|Load|Fan|Voltage|Clock|Power|Data|SmallData|Level|Throughput)$
+                formulaid: A
+          item_prototypes:
+            - uuid: 8e273945c1d243e48f923a4b5c6d7e8f
+              name: 'LHM: {#SENSOR_NAME} ({#HARDWARE_NAME})'
+              type: DEPENDENT
+              key: 'lhm.sensor["{#SENSOR_ID}","{#SENSOR_NAME}"]'
+              delay: '0'
+              value_type: FLOAT
+              units: '{#SENSOR_UNIT}'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$..[?(@.SensorId == "{#SENSOR_ID}" && @.Text == "{#SENSOR_NAME}")].Value'
+                - type: JSONPATH
+                  parameters:
+                    - '$[0]'
+                - type: REGEX
+                  parameters:
+                    - '^(-?[0-9\.,]+)'
+                    - \1
+                - type: STR_REPLACE
+                  parameters:
+                    - ','
+                    - .
+              master_item:
+                key: lhm.get_data
+              tags:
+                - tag: hardware
+                  value: '{#HARDWARE_NAME}'
+                - tag: sensor_type
+                  value: '{#SENSOR_TYPE}'
+              trigger_prototypes:
+                - uuid: a4d5e6f7a8b940a1b2c3d4e5f6a7b8c9
+                  expression: 'avg(/Libre Hardware Monitor Windows Desktop/lhm.sensor["{#SENSOR_ID}","{#SENSOR_NAME}"],5m)>{$LHM.CPU.TEMP.MAX}'
+                  name: 'LHM: High CPU temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} > {$LHM.CPU.TEMP.MAX}°C'
+                  event_name: 'LHM: High CPU temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} is {ITEM.LASTVALUE}'
+                  discover: NO_DISCOVER
+                  priority: HIGH
+                  description: 'Sensor {#SENSOR_NAME} on {#HARDWARE_NAME} is reporting temperature above {$LHM.CPU.TEMP.MAX}°C for 5 minutes.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: scope
+                      value: performance
+                - uuid: c6d7e8f9a0b142d384f5a6b7c8d9e0f1
+                  expression: 'avg(/Libre Hardware Monitor Windows Desktop/lhm.sensor["{#SENSOR_ID}","{#SENSOR_NAME}"],5m)>{$LHM.GPU.TEMP.MAX}'
+                  name: 'LHM: High GPU temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} > {$LHM.GPU.TEMP.MAX}°C'
+                  event_name: 'LHM: High GPU temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} is {ITEM.LASTVALUE}'
+                  discover: NO_DISCOVER
+                  priority: HIGH
+                  description: 'Sensor {#SENSOR_NAME} on {#HARDWARE_NAME} is reporting temperature above {$LHM.GPU.TEMP.MAX}°C for 5 minutes.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: scope
+                      value: performance
+                - uuid: d7e8f9a0b1c243e485f6a7b8c9d0e1f2
+                  expression: 'avg(/Libre Hardware Monitor Windows Desktop/lhm.sensor["{#SENSOR_ID}","{#SENSOR_NAME}"],5m)>{$LHM.HDD.TEMP.MAX}'
+                  name: 'LHM: High HDD temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} > {$LHM.HDD.TEMP.MAX}°C'
+                  event_name: 'LHM: High HDD temperature on {#HARDWARE_NAME}: {#SENSOR_NAME} is {ITEM.LASTVALUE}'
+                  discover: NO_DISCOVER
+                  priority: WARNING
+                  description: 'Sensor {#SENSOR_NAME} on {#HARDWARE_NAME} is reporting temperature above {$LHM.HDD.TEMP.MAX}°C for 5 minutes.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: scope
+                      value: performance
+          master_item:
+            key: lhm.get_data
+          lld_macro_paths:
+            - lld_macro: '{#HARDWARE_NAME}'
+              path: '$["{#HARDWARE_NAME}"]'
+            - lld_macro: '{#HARDWARE_TYPE}'
+              path: '$["{#HARDWARE_TYPE}"]'
+            - lld_macro: '{#SENSOR_CATEGORY}'
+              path: '$["{#SENSOR_CATEGORY}"]'
+            - lld_macro: '{#SENSOR_ID}'
+              path: '$["{#SENSOR_ID}"]'
+            - lld_macro: '{#SENSOR_NAME}'
+              path: '$["{#SENSOR_NAME}"]'
+            - lld_macro: '{#SENSOR_TYPE}'
+              path: '$["{#SENSOR_TYPE}"]'
+            - lld_macro: '{#SENSOR_UNIT}'
+              path: '$["{#SENSOR_UNIT}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var result = [];
+                  function processNode(node, hardwareName, categoryName, hardwareType) {
+                    if (node.Children && node.Children.length > 0) {
+                      for (var i = 0; i < node.Children.length; i++) {
+                        var child = node.Children[i];
+                        if (child.SensorId) {
+                           var sensorType = child.Type ? child.Type.toLowerCase() : "";
+                           
+                           if (sensorType) {
+                             var unit = "";
+                             if (sensorType === "temperature") unit = "°C";
+                             else if (sensorType === "load") unit = "%";
+                             else if (sensorType === "fan") unit = "RPM";
+                             else if (sensorType === "voltage") unit = "V";
+                             else if (sensorType === "clock") unit = "!MHz";
+                             else if (sensorType === "power") unit = "W";
+                             else if (sensorType === "data") unit = "!GB";
+                             else if (sensorType === "smalldata") unit = "!MB";
+                             else if (sensorType === "level") unit = "%";
+                             else if (sensorType === "throughput") unit = "B/s";
+                  
+                             result.push({
+                               "{#HARDWARE_NAME}": hardwareName,
+                               "{#HARDWARE_TYPE}": hardwareType,
+                               "{#SENSOR_NAME}": child.Text,
+                               "{#SENSOR_ID}": child.SensorId,
+                               "{#SENSOR_TYPE}": child.Type,
+                               "{#SENSOR_CATEGORY}": categoryName,
+                               "{#SENSOR_UNIT}": unit
+                             });
+                           }
+                        } else {
+                             // This node might be a hardware or a category node
+                             var currentHardware = hardwareName;
+                             var currentCategory = categoryName;
+                             var currentHardwareType = hardwareType;
+                             
+                             // Detect hardware by presence of HardwareId
+                             if (child.HardwareId) {
+                               currentHardware = child.Text;
+                               currentCategory = ""; // reset category for new hardware
+                               
+                               var hwId = child.HardwareId.toLowerCase();
+                               if (hwId.indexOf("cpu") !== -1) currentHardwareType = "cpu";
+                               else if (hwId.indexOf("gpu") !== -1) currentHardwareType = "gpu";
+                               else if (hwId.indexOf("hdd") !== -1 || hwId.indexOf("ssd") !== -1 || hwId.indexOf("nvme") !== -1 || hwId.indexOf("storage") !== -1) currentHardwareType = "hdd";
+                               else if (hwId.indexOf("motherboard") !== -1 || hwId.indexOf("mainboard") !== -1) currentHardwareType = "mainboard";
+                               else currentHardwareType = "generic";
+                             } else if (child.ImageURL && child.ImageURL.indexOf('images_icon/') !== -1) {
+                               // Likely a category node if it has a category icon
+                               currentCategory = child.Text;
+                             }
+                             
+                             processNode(child, currentHardware, currentCategory, currentHardwareType);
+                        }
+                      }
+                    }
+                  }
+                  
+                  var data = JSON.parse(value);
+                  processNode(data, "", "", "generic");
+                  return JSON.stringify(result);
+          overrides:
+            - name: 'CPU Temperature'
+              step: '1'
+              filter:
+                evaltype: AND
+                conditions:
+                  - macro: '{#HARDWARE_TYPE}'
+                    value: cpu
+                    formulaid: A
+                  - macro: '{#SENSOR_NAME}'
+                    value: '{$LHM.CPU.TEMP.IGNORE}'
+                    operator: NOT_MATCHES_REGEX
+                    formulaid: B
+                  - macro: '{#SENSOR_TYPE}'
+                    value: Temperature
+                    formulaid: C
+              operations:
+                - operationobject: TRIGGER_PROTOTYPE
+                  operator: REGEXP
+                  value: 'High CPU temperature'
+                  discover: DISCOVER
+            - name: 'GPU Temperature'
+              step: '2'
+              filter:
+                evaltype: AND
+                conditions:
+                  - macro: '{#HARDWARE_TYPE}'
+                    value: gpu
+                    formulaid: A
+                  - macro: '{#SENSOR_NAME}'
+                    value: '{$LHM.GPU.TEMP.IGNORE}'
+                    operator: NOT_MATCHES_REGEX
+                    formulaid: B
+                  - macro: '{#SENSOR_TYPE}'
+                    value: Temperature
+                    formulaid: C
+              operations:
+                - operationobject: TRIGGER_PROTOTYPE
+                  operator: REGEXP
+                  value: 'High GPU temperature'
+                  discover: DISCOVER
+            - name: 'HDD Temperature'
+              step: '3'
+              filter:
+                evaltype: AND
+                conditions:
+                  - macro: '{#HARDWARE_TYPE}'
+                    value: hdd
+                    formulaid: A
+                  - macro: '{#SENSOR_NAME}'
+                    value: '{$LHM.HDD.TEMP.IGNORE}'
+                    operator: NOT_MATCHES_REGEX
+                    formulaid: B
+                  - macro: '{#SENSOR_TYPE}'
+                    value: Temperature
+                    formulaid: C
+              operations:
+                - operationobject: TRIGGER_PROTOTYPE
+                  operator: REGEXP
+                  value: 'High HDD temperature'
+                  discover: DISCOVER
+      macros:
+        - macro: '{$LHM.CPU.TEMP.IGNORE}'
+          value: Warning|Critical
+          description: 'Substrings to ignore for CPU temperature sensors (separated by |).'
+        - macro: '{$LHM.CPU.TEMP.MAX}'
+          value: '80'
+          description: 'Maximum CPU temperature in °C.'
+        - macro: '{$LHM.GPU.TEMP.IGNORE}'
+          value: Warning|Critical
+          description: 'Substrings to ignore for GPU temperature sensors (separated by |).'
+        - macro: '{$LHM.GPU.TEMP.MAX}'
+          value: '85'
+          description: 'Maximum GPU temperature in °C.'
+        - macro: '{$LHM.HDD.TEMP.IGNORE}'
+          value: Warning|Critical
+          description: 'Substrings to ignore for HDD temperature sensors (separated by |).'
+        - macro: '{$LHM.HDD.TEMP.MAX}'
+          value: '65'
+          description: 'Maximum HDD temperature in °C.'
